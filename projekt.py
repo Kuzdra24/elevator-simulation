@@ -77,6 +77,16 @@ class Elevator:
                 if target_floor == self.current_floor:
                     # może obsłużyć zatrzymanie bez ruchu (np. osoba wejdzie)
                     yield self.env.process(self._stop_at_floor())
+                    # Jeśli nadal jest żądanie na tym samym piętrze i nie można go obsłużyć, usuń je
+                    if self.current_floor in self.requests:
+                        waiting = SIMULATION.pending_calls.get(self.current_floor, [])
+                        if not waiting:
+                            # Nie ma już oczekujących, usuń żądanie
+                            del self.requests[self.current_floor]
+                        elif all(not ((self.direction == 0) or (p.direction == self.direction)) 
+                                for p in waiting):
+                            # Wszyscy pasażerowie jadą w przeciwnym kierunku, usuń żądanie
+                            del self.requests[self.current_floor]
                 else:
                     if new_dir != 0:
                         self.direction = new_dir
@@ -175,6 +185,17 @@ class Elevator:
             if not waiting and self.current_floor in self.requests:
                 if self.requests[self.current_floor] != True:
                     # jeśli entry nie było wewnętrznym żądaniem, usuń
+                    del self.requests[self.current_floor]
+            # Jeśli są jeszcze oczekujący, ale żaden nie może wsiąść (przeciwny kierunek lub brak miejsca),
+            # usuń żądanie dla tej windy, aby nie blokować innych wind
+            elif waiting and self.current_floor in self.requests:
+                can_any_board = any(
+                    ((self.direction == 0) or (p.direction == self.direction)) and
+                    (self._get_current_load() + p.num_people) <= MAX_CAPACITY
+                    for p in waiting
+                )
+                if not can_any_board and self.requests[self.current_floor] != True:
+                    # Żaden pasażer nie może wsiąść, usuń żądanie dla tej windy
                     del self.requests[self.current_floor]
 
     def add_call(self, passenger):
@@ -328,7 +349,7 @@ def plot_results(results_A, results_B, sim_time):
 
 
 if __name__ == "__main__":
-    SIM_TIME = 2000
+    SIM_TIME = 500  # Zmniejszony czas symulacji dla szybszych testów
     resA = run_simulation('A', SIM_TIME, seed=42)
     resB = run_simulation('B', SIM_TIME, seed=42)
     plot_results(resA, resB, SIM_TIME)
