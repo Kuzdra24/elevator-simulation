@@ -11,10 +11,7 @@ class Elevator:
     
     def __init__(self, env, eid, simulation):
         """
-        Inicjalizuje windę.
-        
         Args:
-            env: Środowisko simpy
             eid: Unikalne ID windy
             simulation: Referencja do obiektu BuildingSimulation
         """
@@ -163,8 +160,9 @@ class Elevator:
                     self.passengers.append(p)
                     # zadanie wewnętrzne: cel pasażera
                     self.requests[p.target_floor] = True
-                    # usuń z kolejki oczekujących w budynku
-                    waiting.remove(p)
+                    # usuń z kolejki oczekujących w budynku (jeśli jeszcze tam jest)
+                    if p in waiting:
+                        waiting.remove(p)
 
             # jeśli po wsiadaniu nikt nie czeka na tym piętrze, usuń zewnętrzne żądanie (u tej windy)
             if not waiting and self.current_floor in self.requests:
@@ -200,28 +198,52 @@ class Elevator:
 
     def calculate_cost_b(self, passenger):
         """
-        Funkcja kosztu dla algorytmu B.
+        Funkcja kosztu dla algorytmu B - optymalizacja przypisania windy.
+        
+        Algorytm B wybiera windę, która może najlepiej zrealizować żądanie,
+        uwzględniając możliwość grupowania kursów o podobnych kierunkach.
+        
+        Składowe kosztu:
+        1. Koszt podróży: odległość do piętra wezwania
+        2. Koszt obciążenia: im więcej pasażerów, tym wyższy koszt
+        3. Bonus grupowania: redukcja kosztu jeśli winda jedzie w tym samym kierunku
+        4. Kara za przeciwny kierunek: wysoka kara jeśli winda jedzie w przeciwnym kierunku
+        5. Kara za brak miejsca: bardzo wysoka kara jeśli winda jest pełna
         
         Args:
-            passenger: Obiekt Passenger
+            passenger: Obiekt Passenger z wybranym piętrem docelowym
             
         Returns:
-            float: Koszt przypisania tego pasażera do tej windy
+            float: Koszt przypisania tego pasażera do tej windy (im niższy, tym lepszy)
         """
+        # 1. Koszt podróży: odległość do piętra wezwania
         distance = abs(self.current_floor - passenger.call_floor)
         travel_cost = distance * TIME_PER_FLOOR
-        capacity_cost = self._get_current_load() * 5
-        # czy on-route?
+        
+        # 2. Koszt obciążenia: im więcej pasażerów, tym wyższy koszt
+        current_load = self._get_current_load()
+        capacity_cost = current_load
+        
+        # 3. Sprawdź czy winda może "po drodze" zabrać pasażera (grupowanie)
+        # Winda jedzie w tym samym kierunku i pasażer jest na trasie
         is_on_route = (self.direction == passenger.direction) and (
             (self.direction == 1 and passenger.call_floor >= self.current_floor) or
             (self.direction == -1 and passenger.call_floor <= self.current_floor)
         )
+        
+        # Bonus za grupowanie: redukcja kosztu jeśli można połączyć kursy
         grouping_bonus = travel_cost * 0.5 if is_on_route else 0
+        
+        # 4. Kara za przeciwny kierunek: winda jedzie w przeciwnym kierunku
         direction_penalty = 0
         if self.direction != 0 and self.direction != passenger.direction and not is_on_route:
             direction_penalty = 100
-        if self._get_current_load() + passenger.num_people > MAX_CAPACITY:
+        
+        # 5. Kara za brak miejsca: bardzo wysoka kara jeśli winda jest pełna
+        if current_load + passenger.num_people > MAX_CAPACITY:
             capacity_cost += 5000
-        cost = travel_cost + capacity_cost + direction_penalty - grouping_bonus
-        return cost
+        
+        # Całkowity koszt (im niższy, tym lepszy)
+        total_cost = travel_cost + capacity_cost + direction_penalty - grouping_bonus
+        return total_cost
 
